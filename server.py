@@ -8,6 +8,7 @@ import datetime
 import os
 import base64
 import secrets
+import re
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
@@ -780,7 +781,7 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
 
 def run_server():
     socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), KeyAuthHandler) as httpd:
+    with socketserver.TCPServer(("0.0.0.0", PORT), KeyAuthHandler) as httpd:
         print(f"[+] Server started successfully on port {PORT}.")
         try:
             httpd.serve_forever()
