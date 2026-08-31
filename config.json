@@ -1,6 +1,6 @@
 {
   "mode": "online",
-  "server_ip": "my-key-server108.onrender.com",
+  "server_ip": "my-key-server103.onrender.com",
   "server_port": 443,
   "use_https": true,
   "auto_login_key": "BRMODS-TEST-KEY-2026",
