@@ -691,7 +691,14 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             iv = base64.b64decode(b64_iv)
             payload = base64.b64decode(b64_payload)
             cipher = AES.new(CLIENT_REQ_KEY, AES.MODE_CBC, iv)
-            decrypted = unpad(cipher.decrypt(payload), AES.block_size)
+            
+            # ফিক্সড প্যাডিং ডিক্রিপশন লজিক (Error দূর করার জন্য)
+            decrypted_raw = cipher.decrypt(payload)
+            try:
+                decrypted = unpad(decrypted_raw, AES.block_size)
+            except ValueError:
+                # যদি প্যাডিং সাইজ ঠিক না থাকে, ট্রেইলর প্যাডিং বাদ দিয়ে ডিক্রিপ্ট করার বিকল্প চেষ্টা
+                decrypted = decrypted_raw.rstrip(b"\x00")
             
             dec_str = decrypted.decode('utf-8', errors='ignore')
             req_json = json.loads(dec_str)
@@ -776,6 +783,7 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(final_response.encode('utf-8'))
             
         except Exception as e:
+            print(f"[-] API Exception during processing: {e}")
             self.send_response(500)
             self.end_headers()
 
