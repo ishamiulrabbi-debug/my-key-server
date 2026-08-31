@@ -1,0 +1,8 @@
+{
+  "mode": "offline",
+  "server_ip": "127.0.0.1",
+  "server_port": 8080,
+  "use_https": false,
+  "auto_login_key": "BRMODS-TEST-KEY-2026",
+  "run_integration_test": false
+}
