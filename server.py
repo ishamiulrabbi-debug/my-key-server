@@ -11,8 +11,8 @@ import secrets
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
-# Configuration
-PORT = 8080
+# Configuration (Updated to support Render dynamic port)
+PORT = int(os.environ.get("PORT", 8080))
 DB_FILE = "auth.db"
 ADMIN_PASSWORD = "admin"  # Modify if desired
 
@@ -448,7 +448,6 @@ DASHBOARD_HTML = """
 class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
     
     def log_message(self, format, *args):
-        # Silence standard HTTP logger outputs to keep console clean
         pass
 
     def check_auth(self):
@@ -456,7 +455,6 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
         if not cookie_header:
             return False
         
-        # Simple token search
         tokens = re.findall(r'session=([a-f0-9]+)', cookie_header)
         if not tokens:
             return False
@@ -496,11 +494,9 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 return
                 
-            # Serve Dashboard
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
             
-            # Fetch stats
             c.execute("SELECT COUNT(*) FROM keys WHERE status = 'active' AND expires_at > ?", (datetime.datetime.now().isoformat(),))
             active_keys = c.fetchone()[0]
             
@@ -510,12 +506,10 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             c.execute("SELECT COUNT(*) FROM logs")
             total_logs = c.fetchone()[0]
             
-            # Fetch Keys table
             c.execute("SELECT key, expires_at, status, comment FROM keys ORDER BY created_at DESC")
             keys = c.fetchall()
             keys_rows = ""
             for key, expires, status, comment in keys:
-                # Determine status badge
                 expiry_dt = datetime.datetime.fromisoformat(expires)
                 is_expired = datetime.datetime.now() > expiry_dt
                 
@@ -525,7 +519,6 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                 
                 badge_class = f"badge-{status_str}"
                 
-                # Format expiry for human readable
                 if expiry_dt.year > 9000:
                     exp_disp = "Lifetime"
                 else:
@@ -546,7 +539,6 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                 </tr>
                 """
                 
-            # Fetch Logs table
             c.execute("SELECT timestamp, ip, key, status, message FROM logs ORDER BY id DESC LIMIT 50")
             logs = c.fetchall()
             logs_rows = ""
@@ -577,13 +569,11 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(html.encode('utf-8'))
             return
             
-        # Serve index or other endpoints (redirect to admin)
         self.send_response(303)
         self.send_header('Location', '/admin')
         self.end_headers()
 
     def do_POST(self):
-        # Determine path
         if self.path == '/admin/login':
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length).decode('utf-8')
@@ -591,7 +581,6 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             pwd = params.get('password', [''])[0]
             
             if pwd == ADMIN_PASSWORD:
-                # Login Success
                 token = secrets.token_hex(16)
                 expiry = (datetime.datetime.now() + datetime.timedelta(hours=2)).isoformat()
                 
@@ -606,7 +595,6 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                 self.send_header('Set-Cookie', f'session={token}; Path=/; HttpOnly; Max-Age=7200')
                 self.end_headers()
             else:
-                # Fail
                 self.send_response(200)
                 self.send_header('Content-type', 'text/html')
                 self.end_headers()
@@ -626,13 +614,11 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             duration_val = params.get('duration', ['7'])[0]
             comment = params.get('comment', [''])[0].strip()
             
-            # Generate or use custom key
             if custom_key:
                 new_key = custom_key
             else:
                 new_key = "BRMODS-" + secrets.token_hex(6).upper()
                 
-            # Expiry calculation
             now = datetime.datetime.now()
             if duration_val == "1h":
                 expires = now + datetime.timedelta(hours=1)
@@ -647,9 +633,8 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                 c.execute("INSERT INTO keys VALUES (?, ?, 'active', ?, ?)", 
                           (new_key, expires.isoformat(), comment, now.isoformat()))
                 conn.commit()
-                print(f"[+] Key Created: {new_key} (Expires: {expires.isoformat()})")
             except sqlite3.IntegrityError:
-                print(f"[-] Key Creation Error: Key {new_key} already exists.")
+                pass
             conn.close()
             
             self.send_response(303); self.send_header('Location', '/admin'); self.end_headers(); return
@@ -688,11 +673,9 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             
             self.send_response(303); self.send_header('Location', '/admin'); self.end_headers(); return
 
-        # WILDCARD: Handles key validation requests from the DLL client
         content_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(content_length).decode('utf-8')
         
-        # Parse params
         params = urllib.parse.parse_qs(post_data)
         b64_iv = params.get('iv', [''])[0]
         b64_payload = params.get('payload', [''])[0]
@@ -704,7 +687,6 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             return
             
         try:
-            # Decrypt request
             iv = base64.b64decode(b64_iv)
             payload = base64.b64decode(b64_payload)
             cipher = AES.new(CLIENT_REQ_KEY, AES.MODE_CBC, iv)
@@ -716,9 +698,6 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             client_key = req_json.get('key', '').strip()
             nonce = req_json.get('nonce', '').strip()
             
-            print(f"[+] API: Key auth request received. Key: '{client_key}', Nonce: '{nonce}'")
-            
-            # Database query
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
             c.execute("SELECT expires_at, status FROM keys WHERE key = ?", (client_key,))
@@ -744,14 +723,12 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                     auth_status = "success"
                     status_msg = "Loaded"
                     dias_left = max(1, int((expiry_dt - datetime.datetime.now()).total_seconds() / 86400))
-                    # Clamp lifetime key to 9999
                     if expiry_dt.year > 9000:
                         dias_left = 9999
             else:
                 status_msg = "Invalid license key entered!"
                 auth_status = "invalid_key"
                 
-            # Log the attempt in database
             ip = self.client_address[0]
             now_iso = datetime.datetime.now().isoformat()
             c.execute("INSERT INTO logs (timestamp, ip, key, status, message) VALUES (?, ?, ?, ?, ?)", 
@@ -759,11 +736,9 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             conn.commit()
             conn.close()
             
-            # Key derivation for response: Key = SHA256(ServerMasterKey + nonce)
             key_input = (SERVER_MASTER_KEY + nonce).encode('utf-8')
             resp_key = hashlib.sha256(key_input).digest()
             
-            # Build success/failed json
             if success:
                 response_json = json.dumps({
                     "status": "success",
@@ -784,14 +759,11 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                     "mensagem": status_msg
                 }, separators=(',', ':'))
                 
-            # Append null byte to mimic client requirements
             response_bytes = response_json.encode('utf-8') + b'\x00'
             
-            # Encrypt response
             resp_cipher = AES.new(resp_key, AES.MODE_CBC, RESPONSE_IV)
             resp_ciphertext = resp_cipher.encrypt(pad(response_bytes, AES.block_size))
             
-            # Base64 response
             resp_b64_iv = base64.b64encode(RESPONSE_IV).decode('utf-8')
             resp_b64_payload = base64.b64encode(resp_ciphertext).decode('utf-8')
             
@@ -801,20 +773,15 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(final_response.encode('utf-8'))
-            print(f"[+] API: Key '{client_key}' validation result -> {auth_status}")
             
         except Exception as e:
-            print(f"[-] API Exception during processing: {e}")
             self.send_response(500)
             self.end_headers()
 
 def run_server():
-    # Allow port reuse to prevent Address Already in Use errors during rapid debugging restarts
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", PORT), KeyAuthHandler) as httpd:
         print(f"[+] Server started successfully on port {PORT}.")
-        print(f"[+] Manage keys via admin dashboard at: http://127.0.0.1:{PORT}/admin")
-        print(f"[+] Default Admin Password: '{ADMIN_PASSWORD}'")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
