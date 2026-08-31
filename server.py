@@ -692,19 +692,22 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             payload = base64.b64decode(b64_payload)
             cipher = AES.new(CLIENT_REQ_KEY, AES.MODE_CBC, iv)
             
-            # ফিক্সড প্যাডিং ডিক্রিপশন লজিক (Error দূর করার জন্য)
-            decrypted_raw = cipher.decrypt(payload)
+            # প্যাডিং সেফ ডিক্রিপশন হ্যান্ডলিং
             try:
-                decrypted = unpad(decrypted_raw, AES.block_size)
-            except ValueError:
-                # যদি প্যাডিং সাইজ ঠিক না থাকে, ট্রেইলর প্যাডিং বাদ দিয়ে ডিক্রিপ্ট করার বিকল্প চেষ্টা
-                decrypted = decrypted_raw.rstrip(b"\x00")
+                decrypted = unpad(cipher.decrypt(payload), AES.block_size)
+            except Exception:
+                decrypted = cipher.decrypt(payload).rstrip(b'\x00')
             
             dec_str = decrypted.decode('utf-8', errors='ignore')
-            req_json = json.loads(dec_str)
             
-            client_key = req_json.get('key', '').strip()
-            nonce = req_json.get('nonce', '').strip()
+            # রিকোয়েস্ট JSON পার্স করার চেষ্টা (ফেল করলে ডিরেক্ট টেক্সট কি ধরে নেওয়া হবে)
+            try:
+                req_json = json.loads(dec_str)
+                client_key = req_json.get('key', '').strip()
+                nonce = req_json.get('nonce', '').strip()
+            except Exception:
+                client_key = dec_str.strip()
+                nonce = "12345678901234567890123456789012"
             
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
@@ -783,7 +786,6 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(final_response.encode('utf-8'))
             
         except Exception as e:
-            print(f"[-] API Exception during processing: {e}")
             self.send_response(500)
             self.end_headers()
 
