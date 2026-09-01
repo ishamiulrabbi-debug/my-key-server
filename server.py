@@ -691,23 +691,13 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             iv = base64.b64decode(b64_iv)
             payload = base64.b64decode(b64_payload)
             cipher = AES.new(CLIENT_REQ_KEY, AES.MODE_CBC, iv)
-            
-            # প্যাডিং সেফ ডিক্রিপশন হ্যান্ডলিং
-            try:
-                decrypted = unpad(cipher.decrypt(payload), AES.block_size)
-            except Exception:
-                decrypted = cipher.decrypt(payload).rstrip(b'\x00')
+            decrypted = unpad(cipher.decrypt(payload), AES.block_size)
             
             dec_str = decrypted.decode('utf-8', errors='ignore')
+            req_json = json.loads(dec_str)
             
-            # রিকোয়েস্ট JSON পার্স করার চেষ্টা (ফেল করলে ডিরেক্ট টেক্সট কি ধরে নেওয়া হবে)
-            try:
-                req_json = json.loads(dec_str)
-                client_key = req_json.get('key', '').strip()
-                nonce = req_json.get('nonce', '').strip()
-            except Exception:
-                client_key = dec_str.strip()
-                nonce = "12345678901234567890123456789012"
+            client_key = req_json.get('key', '').strip()
+            nonce = req_json.get('nonce', '').strip()
             
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
@@ -740,7 +730,13 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                 status_msg = "Invalid license key entered!"
                 auth_status = "invalid_key"
                 
-            ip = self.client_address[0]
+            # আসল ক্লায়েন্ট আইপি অ্যাড্রেস ফেচ করার লজিক (Render বা অন্যান্য প্রক্সির জন্য)
+            ip = self.headers.get('X-Forwarded-For')
+            if ip:
+                ip = ip.split(',')[0].strip()
+            else:
+                ip = self.client_address[0]
+                
             now_iso = datetime.datetime.now().isoformat()
             c.execute("INSERT INTO logs (timestamp, ip, key, status, message) VALUES (?, ?, ?, ?, ?)", 
                       (now_iso, ip, client_key, auth_status, status_msg))
