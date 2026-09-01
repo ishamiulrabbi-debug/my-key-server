@@ -12,24 +12,37 @@ import re
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
-# Configuration (Updated to support Render dynamic port)
+# Configuration (Render dynamic port support)
 PORT = int(os.environ.get("PORT", 8080))
 DB_FILE = "auth.db"
 ADMIN_PASSWORD = "admin"  # Modify if desired
 
-# Setup database
+# Setup database with HWID and Password support
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("""
         CREATE TABLE IF NOT EXISTS keys (
             key TEXT PRIMARY KEY,
+            password TEXT DEFAULT '',
+            hwid TEXT DEFAULT '',
             expires_at TEXT,
             status TEXT,
             comment TEXT,
             created_at TEXT
         )
     """)
+    
+    # Safe migration for existing databases
+    try:
+        c.execute("ALTER TABLE keys ADD COLUMN password TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE keys ADD COLUMN hwid TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,15 +60,17 @@ def init_db():
         )
     """)
     
-    # Add a default admin key for testing if table is empty
+    # Add default test account if table is empty
     c.execute("SELECT COUNT(*) FROM keys")
     if c.fetchone()[0] == 0:
-        test_key = "BRMODS-TEST-KEY-2026"
+        test_key = "BRMODS-USER-2026"
+        test_pass = "123456"
         expiry = (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat()
         created = datetime.datetime.now().isoformat()
-        c.execute("INSERT INTO keys VALUES (?, ?, 'active', 'Default Test Key', ?)", (test_key, expiry, created))
+        c.execute("INSERT INTO keys (key, password, hwid, expires_at, status, comment, created_at) VALUES (?, ?, '', ?, 'active', 'Default Test User', ?)", 
+                  (test_key, test_pass, expiry, created))
         conn.commit()
-        print(f"[+] Added default test key: {test_key}")
+        print(f"[+] Added default test user: {test_key} / Pass: {test_pass}")
         
     conn.close()
 
@@ -187,7 +202,7 @@ LOGIN_HTML = """
 <body>
     <div class="login-card">
         <h2>BRMods Admin</h2>
-        <p class="subtitle">Enter password to manage keys</p>
+        <p class="subtitle">Enter password to manage users & HWID</p>
         <form method="POST" action="/admin/login">
             <div class="form-group">
                 <label for="password">Password</label>
@@ -207,7 +222,7 @@ DASHBOARD_HTML = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BRMods Key Dashboard</title>
+    <title>BRMods Dashboard - HWID & User Management</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -245,7 +260,7 @@ DASHBOARD_HTML = """
         }
         body::before { top: -10%; left: 5%; }
         body::after { bottom: -10%; right: 5%; }
-        .container { max-width: 1200px; margin: 0 auto; }
+        .container { max-width: 1300px; margin: 0 auto; }
         header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
         h1 {
             font-weight: 800;
@@ -301,7 +316,7 @@ DASHBOARD_HTML = """
         .stat-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; }
         .stat-value { font-size: 2.2rem; font-weight: 800; color: #fff; }
         .main-grid { display: grid; grid-template-columns: 1fr; gap: 40px; }
-        @media (min-width: 900px) { .main-grid { grid-template-columns: 1fr 2fr; } }
+        @media (min-width: 950px) { .main-grid { grid-template-columns: 1fr 2fr; } }
         .section-card {
             background: var(--glass-bg);
             border: 1px solid var(--glass-border);
@@ -337,12 +352,15 @@ DASHBOARD_HTML = """
         .badge-active { background: rgba(16, 185, 129, 0.1); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); }
         .badge-revoked { background: rgba(239, 68, 68, 0.1); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.2); }
         .badge-expired { background: rgba(245, 158, 11, 0.1); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.2); }
-        .action-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-weight: 600; font-size: 0.85rem; padding: 4px 8px; border-radius: 6px; transition: all 0.2s ease; }
-        .action-btn-revoke { color: var(--warning); }
-        .action-btn-revoke:hover { background: rgba(245, 158, 11, 0.1); }
-        .action-btn-delete { color: var(--danger); }
-        .action-btn-delete:hover { background: rgba(239, 68, 68, 0.1); }
+        .action-btn { background: none; border: none; cursor: pointer; font-weight: 600; font-size: 0.85rem; padding: 4px 8px; border-radius: 6px; transition: all 0.2s ease; margin-right: 4px; }
+        .action-btn-revoke { color: var(--warning); background: rgba(245, 158, 11, 0.1); }
+        .action-btn-revoke:hover { background: rgba(245, 158, 11, 0.2); }
+        .action-btn-reset { color: #38bdf8; background: rgba(56, 189, 248, 0.1); }
+        .action-btn-reset:hover { background: rgba(56, 189, 248, 0.2); }
+        .action-btn-delete { color: var(--danger); background: rgba(239, 68, 68, 0.1); }
+        .action-btn-delete:hover { background: rgba(239, 68, 68, 0.2); }
         .code-key { font-family: monospace; background: rgba(255, 255, 255, 0.05); padding: 4px 8px; border-radius: 6px; font-size: 0.85rem; color: #d946ef; }
+        .hwid-text { font-family: monospace; font-size: 0.75rem; color: var(--text-muted); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
     </style>
 </head>
 <body>
@@ -350,37 +368,45 @@ DASHBOARD_HTML = """
         <header>
             <div>
                 <h1>BRMods Server Portal</h1>
-                <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">Licensing & Key Validation Dashboard</p>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">Username, Password & HWID Management Dashboard</p>
             </div>
             <a href="/admin/logout" class="btn btn-logout">Logout</a>
         </header>
 
         <div class="stats-grid">
             <div class="stat-card">
-                <span class="stat-label">Active Keys</span>
+                <span class="stat-label">Active Accounts</span>
                 <span class="stat-value">{ACTIVE_KEYS}</span>
             </div>
             <div class="stat-card">
-                <span class="stat-label">Total Keys</span>
+                <span class="stat-label">Total Accounts</span>
                 <span class="stat-value">{TOTAL_KEYS}</span>
             </div>
             <div class="stat-card">
-                <span class="stat-label">Total Activations</span>
+                <span class="stat-label">Total Logins</span>
                 <span class="stat-value">{TOTAL_LOGS}</span>
             </div>
             <div class="stat-card">
                 <span class="stat-label">System Mode</span>
-                <span class="stat-value" style="color: var(--success); font-size: 1.8rem; font-weight: 700; margin-top: 10px;">SECURE</span>
+                <span class="stat-value" style="color: var(--success); font-size: 1.8rem; font-weight: 700; margin-top: 10px;">SECURE + HWID</span>
             </div>
         </div>
 
         <div class="main-grid">
             <div class="section-card">
-                <h2 class="section-title">Create License Key</h2>
+                <h2 class="section-title">Create User / Key</h2>
                 <form method="POST" action="/admin/keys/add">
                     <div class="form-group">
-                        <label for="custom_key">Custom Key Name (Optional)</label>
-                        <input type="text" id="custom_key" name="custom_key" placeholder="Leave empty for auto-generate">
+                        <label for="username">Username / Key</label>
+                        <input type="text" id="username" name="username" placeholder="e.g. user123 or leave empty for auto key">
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password (Optional)</label>
+                        <input type="text" id="password" name="password" placeholder="e.g. secretpass">
+                    </div>
+                    <div class="form-group">
+                        <label for="hwid">Initial HWID (Optional)</label>
+                        <input type="text" id="hwid" name="hwid" placeholder="Pre-bind hardware ID if needed">
                     </div>
                     <div class="form-group">
                         <label for="duration">Duration</label>
@@ -395,19 +421,20 @@ DASHBOARD_HTML = """
                     </div>
                     <div class="form-group">
                         <label for="comment">Description / Comment</label>
-                        <input type="text" id="comment" name="comment" placeholder="e.g. Bangladesh user, VIP">
+                        <input type="text" id="comment" name="comment" placeholder="e.g. Client Name / Device">
                     </div>
-                    <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Generate Key</button>
+                    <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Create Account</button>
                 </form>
             </div>
 
             <div class="section-card">
-                <h2 class="section-title">Manage Keys</h2>
+                <h2 class="section-title">Manage Users & HWID</h2>
                 <div class="table-container">
                     <table>
                         <thead>
                             <tr>
-                                <th>Key</th>
+                                <th>User / Key & Pass</th>
+                                <th>HWID Status</th>
                                 <th>Comment</th>
                                 <th>Expires At</th>
                                 <th>Status</th>
@@ -423,14 +450,14 @@ DASHBOARD_HTML = """
         </div>
 
         <div class="section-card" style="margin-top: 40px;">
-            <h2 class="section-title">Authentication & Activation Logs</h2>
+            <h2 class="section-title">Authentication & HWID Logs</h2>
             <div class="table-container">
                 <table>
                     <thead>
                         <tr>
                             <th>Timestamp</th>
                             <th>IP Address</th>
-                            <th>Key Used</th>
+                            <th>User / Key Used</th>
                             <th>Status</th>
                             <th>Message</th>
                         </tr>
@@ -507,10 +534,10 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             c.execute("SELECT COUNT(*) FROM logs")
             total_logs = c.fetchone()[0]
             
-            c.execute("SELECT key, expires_at, status, comment FROM keys ORDER BY created_at DESC")
+            c.execute("SELECT key, password, hwid, expires_at, status, comment FROM keys ORDER BY created_at DESC")
             keys = c.fetchall()
             keys_rows = ""
-            for key, expires, status, comment in keys:
+            for key, password, hwid, expires, status, comment in keys:
                 expiry_dt = datetime.datetime.fromisoformat(expires)
                 is_expired = datetime.datetime.now() > expiry_dt
                 
@@ -525,14 +552,20 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     exp_disp = expiry_dt.strftime("%Y-%m-%d %H:%M")
                 
+                pass_display = f"<br><small style='color:var(--text-muted);'>Pass: {password}</small>" if password else ""
+                hwid_display = f'<span class="hwid-text" title="{hwid}">{hwid}</span>' if hwid else '<span style="color:var(--text-muted); font-size:0.8rem;">Not Bound</span>'
+                
                 actions = ""
                 if status == 'active':
                     actions += f'<form method="POST" action="/admin/keys/revoke" style="display:inline;"><input type="hidden" name="key" value="{key}"><button type="submit" class="action-btn action-btn-revoke">Revoke</button></form>'
-                actions += f'<form method="POST" action="/admin/keys/delete" style="display:inline; margin-left:8px;"><input type="hidden" name="key" value="{key}"><button type="submit" class="action-btn action-btn-delete">Delete</button></form>'
+                
+                actions += f'<form method="POST" action="/admin/keys/resethwid" style="display:inline;"><input type="hidden" name="key" value="{key}"><button type="submit" class="action-btn action-btn-reset">Reset HWID</button></form>'
+                actions += f'<form method="POST" action="/admin/keys/delete" style="display:inline;"><input type="hidden" name="key" value="{key}"><button type="submit" class="action-btn action-btn-delete">Delete</button></form>'
                 
                 keys_rows += f"""
                 <tr>
-                    <td><span class="code-key">{key}</span></td>
+                    <td><span class="code-key">{key}</span>{pass_display}</td>
+                    <td>{hwid_display}</td>
                     <td>{comment}</td>
                     <td>{exp_disp}</td>
                     <td><span class="badge {badge_class}">{status_str}</span></td>
@@ -611,12 +644,14 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             post_data = self.rfile.read(content_length).decode('utf-8')
             params = urllib.parse.parse_qs(post_data)
             
-            custom_key = params.get('custom_key', [''])[0].strip()
+            username = params.get('username', [''])[0].strip()
+            password = params.get('password', [''])[0].strip()
+            hwid = params.get('hwid', [''])[0].strip()
             duration_val = params.get('duration', ['7'])[0]
             comment = params.get('comment', [''])[0].strip()
             
-            if custom_key:
-                new_key = custom_key
+            if username:
+                new_key = username
             else:
                 new_key = "BRMODS-" + secrets.token_hex(6).upper()
                 
@@ -631,8 +666,8 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
             try:
-                c.execute("INSERT INTO keys VALUES (?, ?, 'active', ?, ?)", 
-                          (new_key, expires.isoformat(), comment, now.isoformat()))
+                c.execute("INSERT INTO keys (key, password, hwid, expires_at, status, comment, created_at) VALUES (?, ?, ?, ?, 'active', ?, ?)", 
+                          (new_key, password, hwid, expires.isoformat(), comment, now.isoformat()))
                 conn.commit()
             except sqlite3.IntegrityError:
                 pass
@@ -657,6 +692,23 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             
             self.send_response(303); self.send_header('Location', '/admin'); self.end_headers(); return
 
+        if self.path == '/admin/keys/resethwid':
+            if not self.check_auth():
+                self.send_response(303); self.send_header('Location', '/admin/login'); self.end_headers(); return
+                
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            params = urllib.parse.parse_qs(post_data)
+            target_key = params.get('key', [''])[0]
+            
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("UPDATE keys SET hwid = '' WHERE key = ?", (target_key,))
+            conn.commit()
+            conn.close()
+            
+            self.send_response(303); self.send_header('Location', '/admin'); self.end_headers(); return
+
         if self.path == '/admin/keys/delete':
             if not self.check_auth():
                 self.send_response(303); self.send_header('Location', '/admin/login'); self.end_headers(); return
@@ -674,6 +726,7 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             
             self.send_response(303); self.send_header('Location', '/admin'); self.end_headers(); return
 
+        # API endpoint for client login/verification with HWID and Username/Password support
         content_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(content_length).decode('utf-8')
         
@@ -696,41 +749,58 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             dec_str = decrypted.decode('utf-8', errors='ignore')
             req_json = json.loads(dec_str)
             
-            client_key = req_json.get('key', '').strip()
+            client_key = req_json.get('key', '').strip() or req_json.get('username', '').strip()
+            client_pass = req_json.get('password', '').strip()
+            client_hwid = req_json.get('hwid', '').strip()
             nonce = req_json.get('nonce', '').strip()
             
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
-            c.execute("SELECT expires_at, status FROM keys WHERE key = ?", (client_key,))
+            c.execute("SELECT password, hwid, expires_at, status FROM keys WHERE key = ?", (client_key,))
             row = c.fetchone()
             
             success = False
             status_msg = ""
             auth_status = "failed"
-            dias_left = 0
+            days_left = 0
             
             if row:
-                expires_at_str, status = row
+                db_pass, db_hwid, expires_at_str, status = row
                 expiry_dt = datetime.datetime.fromisoformat(expires_at_str)
                 
-                if status == 'revoked':
-                    status_msg = "Your key has been revoked by admin!"
+                # Check password if configured on server
+                if db_pass and db_pass != client_pass:
+                    status_msg = "Incorrect password!"
+                    auth_status = "invalid_password"
+                elif status == 'revoked':
+                    status_msg = "Your account/key has been revoked by admin!"
                     auth_status = "revoked"
                 elif datetime.datetime.now() > expiry_dt:
-                    status_msg = "Your license key has expired!"
+                    status_msg = "Your license has expired!"
                     auth_status = "expired"
                 else:
-                    success = True
-                    auth_status = "success"
-                    status_msg = "Loaded"
-                    dias_left = max(1, int((expiry_dt - datetime.datetime.now()).total_seconds() / 86400))
-                    if expiry_dt.year > 9000:
-                        dias_left = 9999
+                    # HWID Check & Auto-bind Logic
+                    if not db_hwid and client_hwid:
+                        # First time bind HWID
+                        c.execute("UPDATE keys SET hwid = ? WHERE key = ?", (client_hwid, client_key))
+                        conn.commit()
+                        db_hwid = client_hwid
+                    
+                    if db_hwid and client_hwid and db_hwid != client_hwid:
+                        status_msg = "HWID mismatch! Locked to another device."
+                        auth_status = "hwid_mismatch"
+                    else:
+                        success = True
+                        auth_status = "success"
+                        status_msg = "Loaded successfully"
+                        days_left = max(1, int((expiry_dt - datetime.datetime.now()).total_seconds() / 86400))
+                        if expiry_dt.year > 9000:
+                            days_left = 9999
             else:
-                status_msg = "Invalid license key entered!"
-                auth_status = "invalid_key"
+                status_msg = "Invalid username or key!"
+                auth_status = "invalid_user"
                 
-            # আসল ক্লায়েন্ট আইপি অ্যাড্রেস ফেচ করার লজিক (Render বা অন্যান্য প্রক্সির জন্য)
+            # Get client IP (support proxies like Render)
             ip = self.headers.get('X-Forwarded-For')
             if ip:
                 ip = ip.split(',')[0].strip()
@@ -738,8 +808,9 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                 ip = self.client_address[0]
                 
             now_iso = datetime.datetime.now().isoformat()
+            log_detail = f"{status_msg} [HWID: {client_hwid}]"
             c.execute("INSERT INTO logs (timestamp, ip, key, status, message) VALUES (?, ?, ?, ?, ?)", 
-                      (now_iso, ip, client_key, auth_status, status_msg))
+                      (now_iso, ip, client_key, auth_status, log_detail))
             conn.commit()
             conn.close()
             
@@ -754,9 +825,9 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                     "token": "brmods_bypass_token_2026",
                     "product": "BRMods",
                     "vendedor": "ServerKey",
-                    "dias": dias_left,
+                    "dias": days_left,
                     "timeData": int(datetime.datetime.now().timestamp()),
-                    "expire": int((datetime.datetime.now() + datetime.timedelta(days=dias_left)).timestamp()) if dias_left < 9999 else 1918000000,
+                    "expire": int((datetime.datetime.now() + datetime.timedelta(days=days_left)).timestamp()) if days_left < 9999 else 1918000000,
                     "o_ga": "", "o_gf": "", "o_pn": "", "o_pugc": "", "o_pths": "", "o_pth": ""
                 }, separators=(',', ':'))
             else:
