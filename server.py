@@ -33,7 +33,6 @@ def init_db():
         )
     """)
     
-    # Safe migration for existing databases
     try:
         c.execute("ALTER TABLE keys ADD COLUMN password TEXT DEFAULT ''")
     except sqlite3.OperationalError:
@@ -60,7 +59,6 @@ def init_db():
         )
     """)
     
-    # Add default test account if table is empty
     c.execute("SELECT COUNT(*) FROM keys")
     if c.fetchone()[0] == 0:
         test_key = "1"
@@ -78,7 +76,6 @@ CLIENT_REQ_KEY = bytes.fromhex("d7659c1e7e7701e2286a351a15e0c0c14258d752a9f4c0f6
 SERVER_MASTER_KEY = "d732f3d741bbeeca76596132ef8e34f30813d2e03605ff3bbb2a5d2d2b4af9a0"
 RESPONSE_IV = bytes([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10])
 
-# HTML Templates (Admin Dashboard)
 LOGIN_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -108,55 +105,21 @@ LOGIN_HTML = """
             overflow: hidden;
             position: relative;
         }
-        body::before, body::after {
-            content: '';
-            position: absolute;
-            width: 300px;
-            height: 300px;
-            border-radius: 50%;
-            background: var(--primary);
-            filter: blur(120px);
-            z-index: -1;
-            opacity: 0.2;
-        }
-        body::before { top: 10%; left: 15%; }
-        body::after { bottom: 10%; right: 15%; }
         .login-card {
             background: var(--glass-bg);
             border: 1px solid var(--glass-border);
             backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
             border-radius: 24px;
             padding: 40px;
             width: 100%;
             max-width: 400px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.5);
             text-align: center;
-            animation: fadeIn 0.8s ease-out;
         }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        h2 {
-            font-size: 2rem;
-            font-weight: 800;
-            margin-bottom: 8px;
-            background: linear-gradient(to right, #fff, #a78bfa);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
+        h2 { font-size: 2rem; font-weight: 800; margin-bottom: 8px; color: #fff; }
         p.subtitle { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 32px; }
         .form-group { margin-bottom: 24px; text-align: left; }
-        label {
-            display: block;
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
+        label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; }
         input {
             width: 100%;
             padding: 14px 18px;
@@ -166,11 +129,6 @@ LOGIN_HTML = """
             color: #fff;
             font-size: 1rem;
             outline: none;
-            transition: all 0.3s ease;
-        }
-        input:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 12px var(--primary-glow);
         }
         button {
             width: 100%;
@@ -182,20 +140,9 @@ LOGIN_HTML = """
             font-size: 1rem;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px var(--primary-glow);
             margin-top: 10px;
         }
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6);
-        }
-        .error-message {
-            color: #ef4444;
-            font-size: 0.9rem;
-            margin-top: 16px;
-            font-weight: 500;
-        }
+        .error-message { color: #ef4444; font-size: 0.9rem; margin-top: 16px; font-weight: 500; }
     </style>
 </head>
 <body>
@@ -229,8 +176,6 @@ DASHBOARD_HTML = """
             --glass-bg: rgba(255, 255, 255, 0.02);
             --glass-border: rgba(255, 255, 255, 0.05);
             --primary: #8b5cf6;
-            --primary-glow: rgba(139, 92, 246, 0.3);
-            --accent: #d946ef;
             --text: #f3f4f6;
             --text-muted: #9ca3af;
             --success: #10b981;
@@ -238,126 +183,37 @@ DASHBOARD_HTML = """
             --warning: #f59e0b;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', sans-serif; }
-        body {
-            background: var(--bg-gradient);
-            color: var(--text);
-            min-height: 100vh;
-            padding: 40px;
-            overflow-x: hidden;
-            position: relative;
-        }
-        body::before, body::after {
-            content: '';
-            position: absolute;
-            width: 400px;
-            height: 400px;
-            border-radius: 50%;
-            background: var(--primary);
-            filter: blur(150px);
-            z-index: -1;
-            opacity: 0.15;
-        }
-        body::before { top: -10%; left: 5%; }
-        body::after { bottom: -10%; right: 5%; }
+        body { background: var(--bg-gradient); color: var(--text); min-height: 100vh; padding: 40px; }
         .container { max-width: 1300px; margin: 0 auto; }
         header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
-        h1 {
-            font-weight: 800;
-            font-size: 2.2rem;
-            background: linear-gradient(to right, #fff, #c084fc);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .btn {
-            padding: 10px 20px;
-            border-radius: 10px;
-            font-weight: 600;
-            font-size: 0.9rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            border: none;
-        }
-        .btn-primary {
-            background: var(--primary);
-            color: #fff;
-            box-shadow: 0 4px 15px var(--primary-glow);
-        }
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(139, 92, 246, 0.5);
-        }
-        .btn-logout {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--danger);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-        .btn-logout:hover { background: rgba(239, 68, 68, 0.2); }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 24px;
-            margin-bottom: 40px;
-        }
-        .stat-card {
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            border-radius: 20px;
-            padding: 24px;
-            backdrop-filter: blur(10px);
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .stat-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; }
+        h1 { font-weight: 800; font-size: 2.2rem; color: #fff; }
+        .btn { padding: 10px 20px; border-radius: 10px; font-weight: 600; cursor: pointer; text-decoration: none; border: none; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-logout { background: rgba(239, 68, 68, 0.1); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.2); }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px; margin-bottom: 40px; }
+        .stat-card { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 8px; }
+        .stat-label { font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
         .stat-value { font-size: 2.2rem; font-weight: 800; color: #fff; }
         .main-grid { display: grid; grid-template-columns: 1fr; gap: 40px; }
         @media (min-width: 950px) { .main-grid { grid-template-columns: 1fr 2fr; } }
-        .section-card {
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            border-radius: 24px;
-            padding: 32px;
-            backdrop-filter: blur(15px);
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-        }
+        .section-card { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 24px; padding: 32px; display: flex; flex-direction: column; gap: 24px; }
         .section-title { font-size: 1.4rem; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 16px; }
         .form-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
         label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
-        input, select {
-            padding: 12px 16px;
-            background: rgba(0, 0, 0, 0.2);
-            border: 1px solid var(--glass-border);
-            border-radius: 10px;
-            color: #fff;
-            outline: none;
-            transition: all 0.3s ease;
-        }
-        input:focus, select:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 10px var(--primary-glow);
-        }
+        input, select { padding: 12px 16px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--glass-border); border-radius: 10px; color: #fff; outline: none; }
         .table-container { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; text-align: left; }
         th, td { padding: 16px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.9rem; }
-        th { font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+        th { font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-size: 0.75rem; }
         td { color: #fff; }
         .badge { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
-        .badge-active { background: rgba(16, 185, 129, 0.1); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); }
-        .badge-revoked { background: rgba(239, 68, 68, 0.1); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.2); }
-        .badge-expired { background: rgba(245, 158, 11, 0.1); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.2); }
-        .action-btn { background: none; border: none; cursor: pointer; font-weight: 600; font-size: 0.85rem; padding: 4px 8px; border-radius: 6px; transition: all 0.2s ease; margin-right: 4px; }
+        .badge-active { background: rgba(16, 185, 129, 0.1); color: var(--success); }
+        .badge-revoked { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
+        .badge-expired { background: rgba(245, 158, 11, 0.1); color: var(--warning); }
+        .action-btn { background: none; border: none; cursor: pointer; font-weight: 600; font-size: 0.85rem; padding: 4px 8px; border-radius: 6px; margin-right: 4px; }
         .action-btn-revoke { color: var(--warning); background: rgba(245, 158, 11, 0.1); }
-        .action-btn-revoke:hover { background: rgba(245, 158, 11, 0.2); }
         .action-btn-reset { color: #38bdf8; background: rgba(56, 189, 248, 0.1); }
-        .action-btn-reset:hover { background: rgba(56, 189, 248, 0.2); }
         .action-btn-delete { color: var(--danger); background: rgba(239, 68, 68, 0.1); }
-        .action-btn-delete:hover { background: rgba(239, 68, 68, 0.2); }
         .code-key { font-family: monospace; background: rgba(255, 255, 255, 0.05); padding: 4px 8px; border-radius: 6px; font-size: 0.85rem; color: #d946ef; }
         .hwid-text { font-family: monospace; font-size: 0.75rem; color: var(--text-muted); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
     </style>
@@ -638,15 +494,12 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             post_data = self.rfile.read(content_length).decode('utf-8')
             params = urllib.parse.parse_qs(post_data)
             
-            username = params.get('username', ['']).strip() if isinstance(params.get('username', ['']), str) else params.get('username', [''])[0].strip()
+            username = params.get('username', [''])[0].strip()
             hwid = params.get('hwid', [''])[0].strip()
             duration_val = params.get('duration', ['7'])[0]
             comment = params.get('comment', [''])[0].strip()
             
-            if username:
-                new_key = username
-            else:
-                new_key = "BRMODS-" + secrets.token_hex(6).upper()
+            new_key = username if username else "BRMODS-" + secrets.token_hex(6).upper()
                 
             now = datetime.datetime.now()
             if duration_val == "1h":
@@ -719,129 +572,135 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             
             self.send_response(303); self.send_header('Location', '/admin'); self.end_headers(); return
 
-        # API endpoint for client login/verification (Username & HWID only)
-        content_length = int(self.headers.get('Content-Length', 0))
-        post_data = self.rfile.read(content_length).decode('utf-8')
-        
-        params = urllib.parse.parse_qs(post_data)
-        b64_iv = params.get('iv', [''])[0]
-        b64_payload = params.get('payload', [''])[0]
-        
-        if not b64_iv or not b64_payload:
-            self.send_response(400)
-            self.end_headers()
-            self.wfile.write(b"Missing parameters.")
-            return
+        # --- Client Authentication / Webhook API Endpoint (Handles /, /api, or any general post request) ---
+        if self.path in ['/', '', '/api', '/verify', '/webhook']:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length).decode('utf-8')
             
-        try:
-            iv = base64.b64decode(b64_iv)
-            payload = base64.b64decode(b64_payload)
-            cipher = AES.new(CLIENT_REQ_KEY, AES.MODE_CBC, iv)
-            decrypted = unpad(cipher.decrypt(payload), AES.block_size)
+            params = urllib.parse.parse_qs(post_data)
+            b64_iv = params.get('iv', [''])[0]
+            b64_payload = params.get('payload', [''])[0]
             
-            dec_str = decrypted.decode('utf-8', errors='ignore')
-            req_json = json.loads(dec_str)
-            
-            client_key = req_json.get('key', '').strip() or req_json.get('username', '').strip()
-            client_hwid = req_json.get('hwid', '').strip()
-            nonce = req_json.get('nonce', '').strip()
-            
-            conn = sqlite3.connect(DB_FILE)
-            c = conn.cursor()
-            c.execute("SELECT hwid, expires_at, status FROM keys WHERE key = ?", (client_key,))
-            row = c.fetchone()
-            
-            success = False
-            status_msg = ""
-            auth_status = "failed"
-            days_left = 0
-            
-            if row:
-                db_hwid, expires_at_str, status = row
-                expiry_dt = datetime.datetime.fromisoformat(expires_at_str)
+            if not b64_iv or not b64_payload:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Missing parameters.")
+                return
                 
-                if status == 'revoked':
-                    status_msg = "Your account has been revoked by admin!"
-                    auth_status = "revoked"
-                elif datetime.datetime.now() > expiry_dt:
-                    status_msg = "Your license has expired!"
-                    auth_status = "expired"
-                else:
-                    # HWID Check & Auto-bind Logic
-                    if not db_hwid and client_hwid:
-                        c.execute("UPDATE keys SET hwid = ? WHERE key = ?", (client_hwid, client_key))
-                        conn.commit()
-                        db_hwid = client_hwid
+            try:
+                iv = base64.b64decode(b64_iv)
+                payload = base64.b64decode(b64_payload)
+                cipher = AES.new(CLIENT_REQ_KEY, AES.MODE_CBC, iv)
+                decrypted = unpad(cipher.decrypt(payload), AES.block_size)
+                
+                dec_str = decrypted.decode('utf-8', errors='ignore')
+                req_json = json.loads(dec_str)
+                
+                client_key = req_json.get('key', '').strip() or req_json.get('username', '').strip()
+                client_hwid = req_json.get('hwid', '').strip()
+                nonce = req_json.get('nonce', '').strip()
+                
+                conn = sqlite3.connect(DB_FILE)
+                c = conn.cursor()
+                c.execute("SELECT hwid, expires_at, status FROM keys WHERE key = ?", (client_key,))
+                row = c.fetchone()
+                
+                success = False
+                status_msg = ""
+                auth_status = "failed"
+                days_left = 0
+                
+                if row:
+                    db_hwid, expires_at_str, status = row
+                    expiry_dt = datetime.datetime.fromisoformat(expires_at_str)
                     
-                    if db_hwid and client_hwid and db_hwid != client_hwid:
-                        status_msg = "HWID mismatch! Locked to another device."
-                        auth_status = "hwid_mismatch"
+                    if status == 'revoked':
+                        status_msg = "Your account has been revoked by admin!"
+                        auth_status = "revoked"
+                    elif datetime.datetime.now() > expiry_dt:
+                        status_msg = "Your license has expired!"
+                        auth_status = "expired"
                     else:
-                        success = True
-                        auth_status = "success"
-                        status_msg = "Loaded successfully"
-                        days_left = max(1, int((expiry_dt - datetime.datetime.now()).total_seconds() / 86400))
-                        if expiry_dt.year > 9000:
-                            days_left = 9999
-            else:
-                status_msg = "Invalid username!"
-                auth_status = "invalid_user"
+                        if not db_hwid and client_hwid:
+                            c.execute("UPDATE keys SET hwid = ? WHERE key = ?", (client_hwid, client_key))
+                            conn.commit()
+                            db_hwid = client_hwid
+                        
+                        if db_hwid and client_hwid and db_hwid != client_hwid:
+                            status_msg = "HWID mismatch! Locked to another device."
+                            auth_status = "hwid_mismatch"
+                        else:
+                            success = True
+                            auth_status = "success"
+                            status_msg = "Loaded successfully"
+                            days_left = max(1, int((expiry_dt - datetime.datetime.now()).total_seconds() / 86400))
+                            if expiry_dt.year > 9000:
+                                days_left = 9999
+                else:
+                    status_msg = "Invalid username!"
+                    auth_status = "invalid_user"
+                    
+                ip = self.headers.get('X-Forwarded-For')
+                if ip:
+                    ip = ip.split(',')[0].strip()
+                else:
+                    ip = self.client_address[0]
+                    
+                now_iso = datetime.datetime.now().isoformat()
+                log_detail = f"{status_msg} [HWID: {client_hwid}]"
+                c.execute("INSERT INTO logs (timestamp, ip, key, status, message) VALUES (?, ?, ?, ?, ?)", 
+                          (now_iso, ip, client_key, auth_status, log_detail))
+                conn.commit()
+                conn.close()
                 
-            # Get client IP
-            ip = self.headers.get('X-Forwarded-For')
-            if ip:
-                ip = ip.split(',')[0].strip()
-            else:
-                ip = self.client_address[0]
+                key_input = (SERVER_MASTER_KEY + nonce).encode('utf-8')
+                resp_key = hashlib.sha256(key_input).digest()
                 
-            now_iso = datetime.datetime.now().isoformat()
-            log_detail = f"{status_msg} [HWID: {client_hwid}]"
-            c.execute("INSERT INTO logs (timestamp, ip, key, status, message) VALUES (?, ?, ?, ?, ?)", 
-                      (now_iso, ip, client_key, auth_status, log_detail))
-            conn.commit()
-            conn.close()
-            
-            key_input = (SERVER_MASTER_KEY + nonce).encode('utf-8')
-            resp_key = hashlib.sha256(key_input).digest()
-            
-            if success:
-                response_json = json.dumps({
-                    "status": "success",
-                    "success": True,
-                    "mensagem": status_msg,
-                    "token": "brmods_bypass_token_2026",
-                    "product": "BRMods",
-                    "vendedor": "ServerKey",
-                    "dias": days_left,
-                    "timeData": int(datetime.datetime.now().timestamp()),
-                    "expire": int((datetime.datetime.now() + datetime.timedelta(days=days_left)).timestamp()) if days_left < 9999 else 1918000000,
-                    "o_ga": "", "o_gf": "", "o_pn": "", "o_pugc": "", "o_pths": "", "o_pth": ""
-                }, separators=(',', ':'))
-            else:
-                response_json = json.dumps({
-                    "status": "failed",
-                    "success": False,
-                    "mensagem": status_msg
-                }, separators=(',', ':'))
+                if success:
+                    response_json = json.dumps({
+                        "status": "success",
+                        "success": True,
+                        "mensagem": status_msg,
+                        "token": "brmods_bypass_token_2026",
+                        "product": "BRMods",
+                        "vendedor": "ServerKey",
+                        "dias": days_left,
+                        "timeData": int(datetime.datetime.now().timestamp()),
+                        "expire": int((datetime.datetime.now() + datetime.timedelta(days=days_left)).timestamp()) if days_left < 9999 else 1918000000,
+                        "o_ga": "", "o_gf": "", "o_pn": "", "o_pugc": "", "o_pths": "", "o_pth": ""
+                    }, separators=(',', ':'))
+                else:
+                    response_json = json.dumps({
+                        "status": "failed",
+                        "success": False,
+                        "mensagem": status_msg
+                    }, separators=(',', ':'))
+                    
+                response_bytes = response_json.encode('utf-8') + b'\x00'
                 
-            response_bytes = response_json.encode('utf-8') + b'\x00'
-            
-            resp_cipher = AES.new(resp_key, AES.MODE_CBC, RESPONSE_IV)
-            resp_ciphertext = resp_cipher.encrypt(pad(response_bytes, AES.block_size))
-            
-            resp_b64_iv = base64.b64encode(RESPONSE_IV).decode('utf-8')
-            resp_b64_payload = base64.b64encode(resp_ciphertext).decode('utf-8')
-            
-            final_response = json.dumps({"iv": resp_b64_iv, "payload": resp_b64_payload}, separators=(',', ':'))
-            
-            self.send_response(200)
+                resp_cipher = AES.new(resp_key, AES.MODE_CBC, RESPONSE_IV)
+                resp_ciphertext = resp_cipher.encrypt(pad(response_bytes, AES.block_size))
+                
+                resp_b64_iv = base64.b64encode(RESPONSE_IV).decode('utf-8')
+                resp_b64_payload = base64.b64encode(resp_ciphertext).decode('utf-8')
+                
+                final_response = json.dumps({"iv": resp_b64_iv, "payload": resp_b64_payload}, separators=(',', ':'))
+                
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(final_response.encode('utf-8'))
+                
+            except Exception as e:
+                self.send_response(500)
+                self.end_headers()
+        else:
+            # যদি অন্য কোনো অজানা পাথে রিকোয়েস্ট আসে
+            self.send_response(404)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            self.wfile.write(final_response.encode('utf-8'))
-            
-        except Exception as e:
-            self.send_response(500)
-            self.end_headers()
+            err_resp = json.dumps({"message": "Unknown Webhook", "code": 10015})
+            self.wfile.write(err_resp.encode('utf-8'))
 
 def run_server():
     socketserver.TCPServer.allow_reuse_address = True
