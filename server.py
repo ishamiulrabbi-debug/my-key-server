@@ -17,7 +17,7 @@ PORT = int(os.environ.get("PORT", 8080))
 DB_FILE = "auth.db"
 ADMIN_PASSWORD = "admin"  # Modify if desired
 
-# Setup database with HWID and Password support
+# Setup database with HWID support
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -63,14 +63,13 @@ def init_db():
     # Add default test account if table is empty
     c.execute("SELECT COUNT(*) FROM keys")
     if c.fetchone()[0] == 0:
-        test_key = "BRMODS-USER-2026"
-        test_pass = "123456"
+        test_key = "1"
         expiry = (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat()
         created = datetime.datetime.now().isoformat()
-        c.execute("INSERT INTO keys (key, password, hwid, expires_at, status, comment, created_at) VALUES (?, ?, '', ?, 'active', 'Default Test User', ?)", 
-                  (test_key, test_pass, expiry, created))
+        c.execute("INSERT INTO keys (key, password, hwid, expires_at, status, comment, created_at) VALUES (?, '', '', ?, 'active', 'Default Test User', ?)", 
+                  (test_key, expiry, created))
         conn.commit()
-        print(f"[+] Added default test user: {test_key} / Pass: {test_pass}")
+        print(f"[+] Added default test user: {test_key}")
         
     conn.close()
 
@@ -79,7 +78,7 @@ CLIENT_REQ_KEY = bytes.fromhex("d7659c1e7e7701e2286a351a15e0c0c14258d752a9f4c0f6
 SERVER_MASTER_KEY = "d732f3d741bbeeca76596132ef8e34f30813d2e03605ff3bbb2a5d2d2b4af9a0"
 RESPONSE_IV = bytes([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10])
 
-# HTML Templates
+# HTML Templates (Admin Dashboard)
 LOGIN_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -368,18 +367,18 @@ DASHBOARD_HTML = """
         <header>
             <div>
                 <h1>BRMods Server Portal</h1>
-                <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">Username, Password & HWID Management Dashboard</p>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">Username & HWID Management Dashboard</p>
             </div>
             <a href="/admin/logout" class="btn btn-logout">Logout</a>
         </header>
 
         <div class="stats-grid">
             <div class="stat-card">
-                <span class="stat-label">Active Accounts</span>
+                <span class="stat-label">Active Users</span>
                 <span class="stat-value">{ACTIVE_KEYS}</span>
             </div>
             <div class="stat-card">
-                <span class="stat-label">Total Accounts</span>
+                <span class="stat-label">Total Users</span>
                 <span class="stat-value">{TOTAL_KEYS}</span>
             </div>
             <div class="stat-card">
@@ -388,7 +387,7 @@ DASHBOARD_HTML = """
             </div>
             <div class="stat-card">
                 <span class="stat-label">System Mode</span>
-                <span class="stat-value" style="color: var(--success); font-size: 1.8rem; font-weight: 700; margin-top: 10px;">SECURE + HWID</span>
+                <span class="stat-value" style="color: var(--success); font-size: 1.8rem; font-weight: 700; margin-top: 10px;">BYPASS + HWID</span>
             </div>
         </div>
 
@@ -398,11 +397,7 @@ DASHBOARD_HTML = """
                 <form method="POST" action="/admin/keys/add">
                     <div class="form-group">
                         <label for="username">Username / Key</label>
-                        <input type="text" id="username" name="username" placeholder="e.g. user123 or leave empty for auto key">
-                    </div>
-                    <div class="form-group">
-                        <label for="password">Password (Optional)</label>
-                        <input type="text" id="password" name="password" placeholder="e.g. secretpass">
+                        <input type="text" id="username" name="username" placeholder="e.g. 1 or user123">
                     </div>
                     <div class="form-group">
                         <label for="hwid">Initial HWID (Optional)</label>
@@ -423,7 +418,7 @@ DASHBOARD_HTML = """
                         <label for="comment">Description / Comment</label>
                         <input type="text" id="comment" name="comment" placeholder="e.g. Client Name / Device">
                     </div>
-                    <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Create Account</button>
+                    <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Create User</button>
                 </form>
             </div>
 
@@ -433,7 +428,7 @@ DASHBOARD_HTML = """
                     <table>
                         <thead>
                             <tr>
-                                <th>User / Key & Pass</th>
+                                <th>Username / Key</th>
                                 <th>HWID Status</th>
                                 <th>Comment</th>
                                 <th>Expires At</th>
@@ -457,7 +452,7 @@ DASHBOARD_HTML = """
                         <tr>
                             <th>Timestamp</th>
                             <th>IP Address</th>
-                            <th>User / Key Used</th>
+                            <th>Username Used</th>
                             <th>Status</th>
                             <th>Message</th>
                         </tr>
@@ -534,10 +529,10 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             c.execute("SELECT COUNT(*) FROM logs")
             total_logs = c.fetchone()[0]
             
-            c.execute("SELECT key, password, hwid, expires_at, status, comment FROM keys ORDER BY created_at DESC")
+            c.execute("SELECT key, hwid, expires_at, status, comment FROM keys ORDER BY created_at DESC")
             keys = c.fetchall()
             keys_rows = ""
-            for key, password, hwid, expires, status, comment in keys:
+            for key, hwid, expires, status, comment in keys:
                 expiry_dt = datetime.datetime.fromisoformat(expires)
                 is_expired = datetime.datetime.now() > expiry_dt
                 
@@ -552,7 +547,6 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     exp_disp = expiry_dt.strftime("%Y-%m-%d %H:%M")
                 
-                pass_display = f"<br><small style='color:var(--text-muted);'>Pass: {password}</small>" if password else ""
                 hwid_display = f'<span class="hwid-text" title="{hwid}">{hwid}</span>' if hwid else '<span style="color:var(--text-muted); font-size:0.8rem;">Not Bound</span>'
                 
                 actions = ""
@@ -564,7 +558,7 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                 
                 keys_rows += f"""
                 <tr>
-                    <td><span class="code-key">{key}</span>{pass_display}</td>
+                    <td><span class="code-key">{key}</span></td>
                     <td>{hwid_display}</td>
                     <td>{comment}</td>
                     <td>{exp_disp}</td>
@@ -644,8 +638,7 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             post_data = self.rfile.read(content_length).decode('utf-8')
             params = urllib.parse.parse_qs(post_data)
             
-            username = params.get('username', [''])[0].strip()
-            password = params.get('password', [''])[0].strip()
+            username = params.get('username', ['']).strip() if isinstance(params.get('username', ['']), str) else params.get('username', [''])[0].strip()
             hwid = params.get('hwid', [''])[0].strip()
             duration_val = params.get('duration', ['7'])[0]
             comment = params.get('comment', [''])[0].strip()
@@ -666,8 +659,8 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
             try:
-                c.execute("INSERT INTO keys (key, password, hwid, expires_at, status, comment, created_at) VALUES (?, ?, ?, ?, 'active', ?, ?)", 
-                          (new_key, password, hwid, expires.isoformat(), comment, now.isoformat()))
+                c.execute("INSERT INTO keys (key, password, hwid, expires_at, status, comment, created_at) VALUES (?, '', ?, ?, 'active', ?, ?)", 
+                          (new_key, hwid, expires.isoformat(), comment, now.isoformat()))
                 conn.commit()
             except sqlite3.IntegrityError:
                 pass
@@ -726,7 +719,7 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             
             self.send_response(303); self.send_header('Location', '/admin'); self.end_headers(); return
 
-        # API endpoint for client login/verification with HWID and Username/Password support
+        # API endpoint for client login/verification (Username & HWID only)
         content_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(content_length).decode('utf-8')
         
@@ -750,13 +743,12 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             req_json = json.loads(dec_str)
             
             client_key = req_json.get('key', '').strip() or req_json.get('username', '').strip()
-            client_pass = req_json.get('password', '').strip()
             client_hwid = req_json.get('hwid', '').strip()
             nonce = req_json.get('nonce', '').strip()
             
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
-            c.execute("SELECT password, hwid, expires_at, status FROM keys WHERE key = ?", (client_key,))
+            c.execute("SELECT hwid, expires_at, status FROM keys WHERE key = ?", (client_key,))
             row = c.fetchone()
             
             success = False
@@ -765,15 +757,11 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             days_left = 0
             
             if row:
-                db_pass, db_hwid, expires_at_str, status = row
+                db_hwid, expires_at_str, status = row
                 expiry_dt = datetime.datetime.fromisoformat(expires_at_str)
                 
-                # Check password if configured on server
-                if db_pass and db_pass != client_pass:
-                    status_msg = "Incorrect password!"
-                    auth_status = "invalid_password"
-                elif status == 'revoked':
-                    status_msg = "Your account/key has been revoked by admin!"
+                if status == 'revoked':
+                    status_msg = "Your account has been revoked by admin!"
                     auth_status = "revoked"
                 elif datetime.datetime.now() > expiry_dt:
                     status_msg = "Your license has expired!"
@@ -781,7 +769,6 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     # HWID Check & Auto-bind Logic
                     if not db_hwid and client_hwid:
-                        # First time bind HWID
                         c.execute("UPDATE keys SET hwid = ? WHERE key = ?", (client_hwid, client_key))
                         conn.commit()
                         db_hwid = client_hwid
@@ -797,10 +784,10 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
                         if expiry_dt.year > 9000:
                             days_left = 9999
             else:
-                status_msg = "Invalid username or key!"
+                status_msg = "Invalid username!"
                 auth_status = "invalid_user"
                 
-            # Get client IP (support proxies like Render)
+            # Get client IP
             ip = self.headers.get('X-Forwarded-For')
             if ip:
                 ip = ip.split(',')[0].strip()
