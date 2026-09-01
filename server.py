@@ -90,7 +90,6 @@ LOGIN_HTML = """
             --glass-bg: rgba(255, 255, 255, 0.03);
             --glass-border: rgba(255, 255, 255, 0.05);
             --primary: #8b5cf6;
-            --primary-glow: rgba(139, 92, 246, 0.4);
             --text: #f3f4f6;
             --text-muted: #9ca3af;
         }
@@ -102,8 +101,6 @@ LOGIN_HTML = """
             display: flex;
             align-items: center;
             justify-content: center;
-            overflow: hidden;
-            position: relative;
         }
         .login-card {
             background: var(--glass-bg);
@@ -572,135 +569,127 @@ class KeyAuthHandler(http.server.BaseHTTPRequestHandler):
             
             self.send_response(303); self.send_header('Location', '/admin'); self.end_headers(); return
 
-        # --- Client Authentication / Webhook API Endpoint (Handles /, /api, or any general post request) ---
-        if self.path in ['/', '', '/api', '/verify', '/webhook']:
-            content_length = int(self.headers.get('Content-Length', 0))
-            post_data = self.rfile.read(content_length).decode('utf-8')
+        # --- Universal Client Authentication Webhook (Handles /, /api, /verify, or any POST path from loader) ---
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length).decode('utf-8')
+        
+        params = urllib.parse.parse_qs(post_data)
+        b64_iv = params.get('iv', [''])[0]
+        b64_payload = params.get('payload', [''])[0]
+        
+        if not b64_iv or not b64_payload:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b"Missing parameters.")
+            return
             
-            params = urllib.parse.parse_qs(post_data)
-            b64_iv = params.get('iv', [''])[0]
-            b64_payload = params.get('payload', [''])[0]
+        try:
+            iv = base64.b64decode(b64_iv)
+            payload = base64.b64decode(b64_payload)
+            cipher = AES.new(CLIENT_REQ_KEY, AES.MODE_CBC, iv)
+            decrypted = unpad(cipher.decrypt(payload), AES.block_size)
             
-            if not b64_iv or not b64_payload:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Missing parameters.")
-                return
+            dec_str = decrypted.decode('utf-8', errors='ignore')
+            req_json = json.loads(dec_str)
+            
+            client_key = req_json.get('key', '').strip() or req_json.get('username', '').strip()
+            client_hwid = req_json.get('hwid', '').strip()
+            nonce = req_json.get('nonce', '').strip()
+            
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("SELECT hwid, expires_at, status FROM keys WHERE key = ?", (client_key,))
+            row = c.fetchone()
+            
+            success = False
+            status_msg = ""
+            auth_status = "failed"
+            days_left = 0
+            
+            if row:
+                db_hwid, expires_at_str, status = row
+                expiry_dt = datetime.datetime.fromisoformat(expires_at_str)
                 
-            try:
-                iv = base64.b64decode(b64_iv)
-                payload = base64.b64decode(b64_payload)
-                cipher = AES.new(CLIENT_REQ_KEY, AES.MODE_CBC, iv)
-                decrypted = unpad(cipher.decrypt(payload), AES.block_size)
-                
-                dec_str = decrypted.decode('utf-8', errors='ignore')
-                req_json = json.loads(dec_str)
-                
-                client_key = req_json.get('key', '').strip() or req_json.get('username', '').strip()
-                client_hwid = req_json.get('hwid', '').strip()
-                nonce = req_json.get('nonce', '').strip()
-                
-                conn = sqlite3.connect(DB_FILE)
-                c = conn.cursor()
-                c.execute("SELECT hwid, expires_at, status FROM keys WHERE key = ?", (client_key,))
-                row = c.fetchone()
-                
-                success = False
-                status_msg = ""
-                auth_status = "failed"
-                days_left = 0
-                
-                if row:
-                    db_hwid, expires_at_str, status = row
-                    expiry_dt = datetime.datetime.fromisoformat(expires_at_str)
+                if status == 'revoked':
+                    status_msg = "Your account has been revoked by admin!"
+                    auth_status = "revoked"
+                elif datetime.datetime.now() > expiry_dt:
+                    status_msg = "Your license has expired!"
+                    auth_status = "expired"
+                else:
+                    if not db_hwid and client_hwid:
+                        c.execute("UPDATE keys SET hwid = ? WHERE key = ?", (client_hwid, client_key))
+                        conn.commit()
+                        db_hwid = client_hwid
                     
-                    if status == 'revoked':
-                        status_msg = "Your account has been revoked by admin!"
-                        auth_status = "revoked"
-                    elif datetime.datetime.now() > expiry_dt:
-                        status_msg = "Your license has expired!"
-                        auth_status = "expired"
+                    if db_hwid and client_hwid and db_hwid != client_hwid:
+                        status_msg = "HWID mismatch! Locked to another device."
+                        auth_status = "hwid_mismatch"
                     else:
-                        if not db_hwid and client_hwid:
-                            c.execute("UPDATE keys SET hwid = ? WHERE key = ?", (client_hwid, client_key))
-                            conn.commit()
-                            db_hwid = client_hwid
-                        
-                        if db_hwid and client_hwid and db_hwid != client_hwid:
-                            status_msg = "HWID mismatch! Locked to another device."
-                            auth_status = "hwid_mismatch"
-                        else:
-                            success = True
-                            auth_status = "success"
-                            status_msg = "Loaded successfully"
-                            days_left = max(1, int((expiry_dt - datetime.datetime.now()).total_seconds() / 86400))
-                            if expiry_dt.year > 9000:
-                                days_left = 9999
-                else:
-                    status_msg = "Invalid username!"
-                    auth_status = "invalid_user"
-                    
-                ip = self.headers.get('X-Forwarded-For')
-                if ip:
-                    ip = ip.split(',')[0].strip()
-                else:
-                    ip = self.client_address[0]
-                    
-                now_iso = datetime.datetime.now().isoformat()
-                log_detail = f"{status_msg} [HWID: {client_hwid}]"
-                c.execute("INSERT INTO logs (timestamp, ip, key, status, message) VALUES (?, ?, ?, ?, ?)", 
-                          (now_iso, ip, client_key, auth_status, log_detail))
-                conn.commit()
-                conn.close()
+                        success = True
+                        auth_status = "success"
+                        status_msg = "Loaded successfully"
+                        days_left = max(1, int((expiry_dt - datetime.datetime.now()).total_seconds() / 86400))
+                        if expiry_dt.year > 9000:
+                            days_left = 9999
+            else:
+                status_msg = "Invalid username!"
+                auth_status = "invalid_user"
                 
-                key_input = (SERVER_MASTER_KEY + nonce).encode('utf-8')
-                resp_key = hashlib.sha256(key_input).digest()
+            ip = self.headers.get('X-Forwarded-For')
+            if ip:
+                ip = ip.split(',')[0].strip()
+            else:
+                ip = self.client_address[0]
                 
-                if success:
-                    response_json = json.dumps({
-                        "status": "success",
-                        "success": True,
-                        "mensagem": status_msg,
-                        "token": "brmods_bypass_token_2026",
-                        "product": "BRMods",
-                        "vendedor": "ServerKey",
-                        "dias": days_left,
-                        "timeData": int(datetime.datetime.now().timestamp()),
-                        "expire": int((datetime.datetime.now() + datetime.timedelta(days=days_left)).timestamp()) if days_left < 9999 else 1918000000,
-                        "o_ga": "", "o_gf": "", "o_pn": "", "o_pugc": "", "o_pths": "", "o_pth": ""
-                    }, separators=(',', ':'))
-                else:
-                    response_json = json.dumps({
-                        "status": "failed",
-                        "success": False,
-                        "mensagem": status_msg
-                    }, separators=(',', ':'))
-                    
-                response_bytes = response_json.encode('utf-8') + b'\x00'
+            now_iso = datetime.datetime.now().isoformat()
+            log_detail = f"{status_msg} [HWID: {client_hwid}]"
+            c.execute("INSERT INTO logs (timestamp, ip, key, status, message) VALUES (?, ?, ?, ?, ?)", 
+                      (now_iso, ip, client_key, auth_status, log_detail))
+            conn.commit()
+            conn.close()
+            
+            key_input = (SERVER_MASTER_KEY + nonce).encode('utf-8')
+            resp_key = hashlib.sha256(key_input).digest()
+            
+            if success:
+                response_json = json.dumps({
+                    "status": "success",
+                    "success": True,
+                    "mensagem": status_msg,
+                    "token": "brmods_bypass_token_2026",
+                    "product": "BRMods",
+                    "vendedor": "ServerKey",
+                    "dias": days_left,
+                    "timeData": int(datetime.datetime.now().timestamp()),
+                    "expire": int((datetime.datetime.now() + datetime.timedelta(days=days_left)).timestamp()) if days_left < 9999 else 1918000000,
+                    "o_ga": "", "o_gf": "", "o_pn": "", "o_pugc": "", "o_pths": "", "o_pth": ""
+                }, separators=(',', ':'))
+            else:
+                response_json = json.dumps({
+                    "status": "failed",
+                    "success": False,
+                    "mensagem": status_msg
+                }, separators=(',', ':'))
                 
-                resp_cipher = AES.new(resp_key, AES.MODE_CBC, RESPONSE_IV)
-                resp_ciphertext = resp_cipher.encrypt(pad(response_bytes, AES.block_size))
-                
-                resp_b64_iv = base64.b64encode(RESPONSE_IV).decode('utf-8')
-                resp_b64_payload = base64.b64encode(resp_ciphertext).decode('utf-8')
-                
-                final_response = json.dumps({"iv": resp_b64_iv, "payload": resp_b64_payload}, separators=(',', ':'))
-                
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(final_response.encode('utf-8'))
-                
-            except Exception as e:
-                self.send_response(500)
-                self.end_headers()
-        else:
-            # যদি অন্য কোনো অজানা পাথে রিকোয়েস্ট আসে
-            self.send_response(404)
+            response_bytes = response_json.encode('utf-8') + b'\x00'
+            
+            resp_cipher = AES.new(resp_key, AES.MODE_CBC, RESPONSE_IV)
+            resp_ciphertext = resp_cipher.encrypt(pad(response_bytes, AES.block_size))
+            
+            resp_b64_iv = base64.b64encode(RESPONSE_IV).decode('utf-8')
+            resp_b64_payload = base64.b64encode(resp_ciphertext).decode('utf-8')
+            
+            final_response = json.dumps({"iv": resp_b64_iv, "payload": resp_b64_payload}, separators=(',', ':'))
+            
+            self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            err_resp = json.dumps({"message": "Unknown Webhook", "code": 10015})
-            self.wfile.write(err_resp.encode('utf-8'))
+            self.wfile.write(final_response.encode('utf-8'))
+            
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
 
 def run_server():
     socketserver.TCPServer.allow_reuse_address = True
